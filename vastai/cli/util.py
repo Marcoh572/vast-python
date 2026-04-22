@@ -84,14 +84,18 @@ def is_pip_package():
     except Exception:
         return False
 
-def get_update_command(stable_version: str) -> str:
+def get_update_command(stable_version: str) -> list:
+    """Return a list of argv-lists to run sequentially to update the CLI."""
     if is_pip_package():
+        base = [sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-cache-dir"]
         if "test.pypi.org" in PYPI_BASE_PATH:
-            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir -i {PYPI_BASE_PATH} vastai=={stable_version}"
-        else:
-            return f"{sys.executable} -m pip install --force-reinstall --no-cache-dir vastai=={stable_version}"
-    else:
-        return f"git fetch --all --tags --prune && git checkout tags/v{stable_version}"
+            base += ["-i", PYPI_BASE_PATH]
+        base.append(f"vastai=={stable_version}")
+        return [base]
+    return [
+        ["git", "fetch", "--all", "--tags", "--prune"],
+        ["git", "checkout", f"tags/v{stable_version}"],
+    ]
 
 
 def get_local_version():
@@ -147,17 +151,17 @@ def check_for_update():
         print("You selected no. If you don't want to check for updates each time, update should_check_for_update in vast.py")
         return
 
-    update_command = get_update_command(pypi_version)
+    update_commands = get_update_command(pypi_version)
 
     print("Updating...")
-    _ = subprocess.run(
-        update_command,
-        shell=True,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    for cmd in update_commands:
+        subprocess.run(
+            cmd,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
     print("Update completed successfully!\nAttempt to run your command again!")
     sys.exit(0)
@@ -632,32 +636,37 @@ def parse_hour_cron_style(value):
     raise argparse.ArgumentTypeError("Hour must be 0-23 or '*' for every hour.")
 
 def convert_dates_to_timestamps(args):
-    selector_flag = ""
     end_timestamp = time.time()
-    start_timestamp = time.time() - (24*60*60)
-    start_date_txt = ""
-    end_date_txt = ""
+    start_timestamp = time.time() - (24 * 60 * 60)
 
-    import dateutil
-    from dateutil import parser
+    from dateutil import parser as dateutil_parser
 
     if args.end_date:
         try:
-            end_date = dateutil.parser.parse(str(args.end_date))
-            end_date_txt = end_date.isoformat()
-            end_timestamp = time.mktime(end_date.timetuple())
+            end_timestamp = _parse_date_to_utc_timestamp(args.end_date, dateutil_parser)
         except ValueError as e:
             print(f"Warning: Invalid end date format! Ignoring end date! \n {str(e)}")
 
     if args.start_date:
         try:
-            start_date = dateutil.parser.parse(str(args.start_date))
-            start_date_txt = start_date.isoformat()
-            start_timestamp = time.mktime(start_date.timetuple())
+            start_timestamp = _parse_date_to_utc_timestamp(args.start_date, dateutil_parser)
         except ValueError as e:
             print(f"Warning: Invalid start date format! Ignoring start date! \n {str(e)}")
 
     return start_timestamp, end_timestamp
+
+
+def _parse_date_to_utc_timestamp(value, dateutil_parser):
+    """Parse a user-supplied date string into a UNIX timestamp.
+
+    Naive inputs (e.g. 'YYYY-MM-DD') are interpreted as UTC so that filter
+    windows don't shift with the caller's local timezone. Aware inputs keep
+    their declared offset.
+    """
+    dt = dateutil_parser.parse(str(value))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 def validate_frequency_values(day_of_the_week, hour_of_the_day, frequency):
 

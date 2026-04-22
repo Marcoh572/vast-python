@@ -51,6 +51,9 @@ parser = _get_parser()
 )
 def show__instances(args, extra_filters=None):
     """Show the user's current instances."""
+    if not (extra_filters and extra_filters.get('internal')) and not args.quiet:
+        print("DEPRECATED: `vastai show instances` will be removed in a future release. "
+              "Use `vastai show instances-v1` for the new paginated command.", file=sys.stderr)
     client = get_client(args)
     rows = instances_api.show_instances(client)
 
@@ -68,6 +71,10 @@ def show__instances(args, extra_filters=None):
     else:
         display_table(rows, instance_fields)
 
+
+# ---------------------------------------------------------------------------
+# show instance (single)
+# ---------------------------------------------------------------------------
 
 @parser.command(
     argument("id", help="id of instance to get", type=int),

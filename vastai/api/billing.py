@@ -18,15 +18,10 @@ def show_invoices(client, start_date=None, end_date=None, only_charges=False, on
     Returns:
         dict: Invoice data including 'invoices' and 'current' charges.
     """
-    Minutes = 60.0
-    Hours = 60.0 * Minutes
-    Days = 24.0 * Hours
-
     end_timestamp = time.time()
     start_timestamp = time.time() - (24 * 60 * 60)
 
     try:
-        import dateutil
         from dateutil import parser as dateutil_parser
 
         if end_date:
@@ -45,13 +40,10 @@ def show_invoices(client, start_date=None, end_date=None, only_charges=False, on
     except ImportError:
         pass
 
-    sdate = start_timestamp
-    edate = end_timestamp
-
     query_args = {
         "owner": "me",
-        "sdate": sdate,
-        "edate": edate,
+        "sdate": start_timestamp,
+        "edate": end_timestamp,
         "inc_charges": not only_credits,
     }
 

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import os
+import warnings
 from typing import Dict, List, Optional
 
+from vastai._base import _resolve_api_key, _APIKEY_SENTINEL
 from vastai.api.client import VastClient
 from vastai.api import instances, offers, machines, teams, keys, endpoints, billing, storage, clusters, auth, deployments
-
-
-# Default API key file location (matches legacy CLI behavior)
-APIKEY_FILE = os.path.join(os.path.expanduser("~"), ".vast_api_key")
 
 
 class VastAI:
@@ -22,8 +19,10 @@ class VastAI:
     caller-supplied arguments.
 
     Args:
-        api_key: Vast.ai API key.  When *None*, the key is read from
-            ``~/.vast_api_key`` if the file exists.
+        api_key: Vast.ai API key.  When omitted, the key is resolved from
+            ``VAST_API_KEY``, then ``$XDG_CONFIG_HOME/vastai/vast_api_key``
+            (falling back to ``~/.config/vastai/vast_api_key``), then the
+            legacy ``~/.vast_api_key``.
         server_url: Base URL of the Vast.ai API server.
         retry: Number of retries on transient HTTP errors.
         raw: If *True*, return raw JSON dicts instead of formatted output.
@@ -42,11 +41,8 @@ class VastAI:
         quiet: bool = False,
         curl: bool = False,
     ):
-        if api_key is None and os.path.exists(APIKEY_FILE):
-            with open(APIKEY_FILE, "r") as f:
-                api_key = f.read().strip()
-
-        self.client = VastClient(api_key, server_url, retry, explain, curl)
+        resolved_key = _resolve_api_key(_APIKEY_SENTINEL if api_key is None else api_key)
+        self.client = VastClient(resolved_key, server_url, retry, explain, curl)
         self.raw = raw
         self.quiet = quiet
 
@@ -55,7 +51,11 @@ class VastAI:
     # ------------------------------------------------------------------
 
     def show_instances(self) -> list[dict]:
-        """Return all instances for the authenticated user."""
+        """Return all instances for the authenticated user (deprecated; use show_instances_v1)."""
+        warnings.warn(
+            "VastAI.show_instances() is deprecated; use VastAI.show_instances_v1(params) for the paginated v1 API.",
+            DeprecationWarning, stacklevel=2,
+        )
         return instances.show_instances(self.client)
 
     def show_instances_v1(self, params: dict) -> dict:
@@ -338,8 +338,20 @@ class VastAI:
         return machines.show_machines(self.client)
 
     def show_machine(self, id: int) -> dict:
-        """Return details of a single machine."""
-        return machines.show_machine(self.client, id)
+        """Return details of a single machine.
+
+        The underlying ``GET /machines/{id}`` endpoint returns a one-element
+        list; this wrapper unwraps it so callers get a single machine dict.
+        Raises ``ValueError`` if the backend returns zero or multiple rows.
+        """
+        result = machines.show_machine(self.client, id)
+        if not isinstance(result, list):
+            return result
+        if not result:
+            raise ValueError(f"Machine {id} not found")
+        if len(result) > 1:
+            raise ValueError(f"Expected 1 machine for id={id}, got {len(result)}")
+        return result[0]
 
     def show_maints(self, ids) -> list[dict]:
         """Show maintenance information for machines."""
@@ -461,8 +473,16 @@ class VastAI:
         return keys.detach_ssh(self.client, instance_id, ssh_key_id)
 
     def show_api_keys(self) -> list[dict]:
-        """Show all API keys."""
-        return keys.show_api_keys(self.client)
+        """Return all API keys associated with the account.
+
+        The underlying ``GET /auth/apikeys/`` endpoint returns an envelope dict
+        ``{"apikeys": [...]}``; this wrapper unwraps it so callers get a plain
+        list of API key dicts.
+        """
+        result = keys.show_api_keys(self.client)
+        if isinstance(result, dict) and "apikeys" in result:
+            return result["apikeys"]
+        return result
 
     def show_api_key(self, id: int) -> dict:
         """Show details of an API key."""
@@ -524,9 +544,20 @@ class VastAI:
     # Billing methods
     # ------------------------------------------------------------------
 
-    def show_invoices(self, **kwargs) -> list[dict]:
-        """Show invoice details."""
+    def show_invoices(self, **kwargs) -> dict:
+        """Show invoice details (deprecated; use show_invoices_v1).
+
+        Returns dict with 'invoices' list and 'current' charges.
+        """
+        warnings.warn(
+            "VastAI.show_invoices() is deprecated; use VastAI.show_invoices_v1(**params) for the paginated v1 API.",
+            DeprecationWarning, stacklevel=2,
+        )
         return billing.show_invoices(self.client, **kwargs)
+
+    def show_invoices_v1(self, **kwargs) -> dict:
+        """Get billing history reports with advanced filtering and pagination."""
+        return billing.show_invoices_v1(self.client, kwargs)
 
     def show_earnings(self, **kwargs) -> list[dict]:
         """Show earnings information."""
@@ -883,10 +914,6 @@ class VastAI:
     def generate_pdf_invoices(self, **kwargs):
         """Generate PDF invoices based on filters."""
         raise NotImplementedError("generate_pdf_invoices is not yet implemented")
-
-    def show_invoices_v1(self, **kwargs) -> dict:
-        """Get billing history reports with advanced filtering and pagination."""
-        return billing.show_invoices_v1(self.client, kwargs)
 
     def transfer_credit(self, recipient: str, amount: float) -> dict:
         """Transfer credit to another account."""

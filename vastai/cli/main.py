@@ -15,6 +15,24 @@ try:
 except AttributeError:
     JSONDecodeError = ValueError
 
+
+def _emit_error(args, status_code, message):
+    """Emit a command error in the appropriate format.
+
+    In ``--raw`` mode, prints a JSON error object to stderr so scripts can
+    parse it; otherwise prints a human-readable line. Always goes to stderr
+    so stdout stays clean for scripting consumers.
+    """
+    if getattr(args, "raw", False):
+        payload = {"error": True, "status_code": status_code, "msg": message}
+        print(json.dumps(payload), file=sys.stderr)
+    else:
+        if status_code:
+            print(f"Failed with error {status_code}: {message}", file=sys.stderr)
+        else:
+            print(message, file=sys.stderr)
+
+
 # Create the global parser instance
 parser = apwrap(
     epilog="Use 'vast COMMAND --help' for more info about a command",
@@ -27,7 +45,7 @@ def main():
     # registrations on the global parser via _get_parser().
     from vastai.cli.commands import (  # noqa: F401
         instances, offers, machines, teams, keys, endpoints,
-        billing, storage, auth, misc, deployments, metrics,
+        billing, storage, auth, misc, deployments, benchmark, metrics,
         # clusters,  # cluster/overlay commands disabled for now
     )
 
@@ -47,7 +65,7 @@ def main():
 
     # Add global arguments
     parser.add_argument("--url", help="Server REST API URL", default=server_url_default)
-    parser.add_argument("--retry", help="Retry limit", default=3)
+    parser.add_argument("--retry", help="Retry limit", type=int, default=3)
     parser.add_argument("--explain", action="store_true", help="Output verbose explanation of mapping of CLI calls to HTTPS API endpoints")
     parser.add_argument("--raw", action="store_true", help="Output machine-readable json")
     parser.add_argument("--full", action="store_true", help="Print full results instead of paging with `less` for commands that support it")
@@ -125,11 +143,11 @@ def main():
                         print("Please log in using the `tfa login` command and try again.")
                         break
 
-            print(f"Failed with error {e.response.status_code}: {errmsg}")
+            _emit_error(args, e.response.status_code, errmsg)
             break
 
         except ValueError as e:
-            print(e)
+            _emit_error(args, 0, str(e))
             break
 
 

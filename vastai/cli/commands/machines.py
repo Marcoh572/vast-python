@@ -76,9 +76,9 @@ def show__machines(args):
 # ---------------------------------------------------------------------------
 
 @parser.command(
-    argument("-ids", help="comma separated string of machine_ids for which to get maintenance information", type=str),
+    argument("-i", "--ids", help="comma separated string of machine_ids for which to get maintenance information", type=str),
     argument("-q", "--quiet", action="store_true", help="only display numeric ids of the machines in maintenance"),
-    usage="\nvastai show maints -ids 'machine_id_1' [OPTIONS]\nvastai show maints -ids 'machine_id_1, machine_id_2' [OPTIONS]",
+    usage="vastai show maints --ids 'machine_id_1[,machine_id_2,...]' [OPTIONS]",
     help="[Host] Show maintenance information for host machines",
 )
 def show__maints(args):
@@ -309,13 +309,12 @@ def cleanup__machine(args):
     client = get_client(args)
     rj = machines_api.cleanup_machine(client, id=args.id)
 
+    if args.raw:
+        return rj
     if rj.get("success"):
         print(json.dumps(rj, indent=1))
     else:
-        if args.raw:
-            return rj
-        else:
-            print(rj.get("msg", rj))
+        print(rj.get("msg", rj))
 
 
 # ---------------------------------------------------------------------------
